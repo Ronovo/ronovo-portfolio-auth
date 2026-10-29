@@ -1,0 +1,10 @@
+[project]
+name = "ronovo-portfolio-auth"
+version = "1.0.0"
+description = "Portfolio login and security questions shared by the Ronovo portfolio apps."
+requires-python = ">=3.10"
+dependencies = ["pyjwt[crypto]>=2.8"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
