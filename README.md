@@ -26,3 +26,7 @@ To release a change: bump `version` in `pyproject.toml`, push, tag it (for examp
 update the tag in each app's `requirements.txt`.
 
 To work on it next to an app, install it from the folder instead: `pip install -e ../ronovo-portfolio-auth`.
+
+## License
+
+BSD 2-Clause. See [LICENSE](LICENSE).
