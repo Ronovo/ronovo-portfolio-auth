@@ -1,6 +1,4 @@
 """Security questions for password resets."""
-import hashlib
-import hmac
 from typing import Optional
 
 QUESTIONS = [
@@ -54,10 +52,3 @@ def problem(question, answer) -> Optional[str]:
     if len(normalized) > MAX_ANSWER_LENGTH:
         return f"Keep the security answer to {MAX_ANSWER_LENGTH} characters or fewer."
     return None
-
-
-def stand_in_question(username: str, key: bytes) -> str:
-    """The question shown for a username with no account. It is the same one every time, so the reset page
-    doesn't reveal which usernames exist."""
-    digest = hmac.new(key, username.lower().encode("utf-8"), hashlib.sha256).digest()
-    return QUESTIONS[int.from_bytes(digest[:4], "big") % len(QUESTIONS)]

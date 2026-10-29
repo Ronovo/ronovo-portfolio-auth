@@ -15,7 +15,8 @@ class LockedOut(Exception):
 
 
 class LoginLimiter:
-    """Counts wrong passwords per username in memory, so it limits each server process separately."""
+    """Counts wrong passwords per username in memory, so it limits each server process separately. A username's
+    count is forgotten lock_seconds after its last wrong password, or when its lock ends."""
 
     def __init__(self, max_failures: int = MAX_FAILURES, lock_seconds: float = LOCK_SECONDS):
         self.max_failures = max_failures
@@ -29,14 +30,16 @@ class LoginLimiter:
         under the limit."""
         key = username.lower()
         with self._lock:
-            failures, locked_until = self._failures.get(key, (0, 0.0))
-            if time.monotonic() < locked_until or failures >= self.max_failures:
+            now = time.monotonic()
+            self._failures = {k: entry for k, entry in self._failures.items() if entry[1] > now}
+            failures = self._failures.get(key, (0, 0.0))[0]
+            if failures >= self.max_failures:
                 raise LockedOut()
-            self._failures[key] = (failures + 1, 0.0)
+            self._failures[key] = (failures + 1, now + self.lock_seconds)
         valid = check()
         with self._lock:
             if valid:
                 self._failures.pop(key, None)
-            elif self._failures.get(key, (0, 0.0))[0] >= self.max_failures:
-                self._failures[key] = (0, time.monotonic() + self.lock_seconds)
+            elif key in self._failures and self._failures[key][0] >= self.max_failures:
+                self._failures[key] = (self.max_failures, time.monotonic() + self.lock_seconds)
         return valid
