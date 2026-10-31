@@ -8,11 +8,17 @@ Esoteric Chat. The portfolio uses it to issue login tokens, the apps to check th
 
 | Module | What it does |
 | --- | --- |
-| `ronovo_portfolio_auth.portfolio_sso` | Both sides of the login token: `issue` signs one (the portfolio), `verify` checks one (the apps). Also the key helpers, the callback path and query names, and `add_flask_routes`, which adds `/sso/login` and `/sso/callback` to a Flask app. |
-| `ronovo_portfolio_auth.security_questions` | The 30 security questions, answer normalizing and checks, and the reset limits (5 wrong answers, then a 15 minute lock). |
+| `ronovo_portfolio_auth.portfolio_sso` | Both sides of the login token: `issue` signs one (the portfolio), `verify` checks one (the apps). Also the key helpers, the callback path and query names, `safe_next`, and `add_flask_routes`, which adds `/sso/login` and `/sso/callback` to a Flask app. |
+| `ronovo_portfolio_auth.security_questions` | The 30 security questions, answer normalizing and checks, and the reset limits (5 wrong answers, then a 15 minute lock). The list is written by the portfolio's `sync_security_questions.py` from its `security-questions.json`; change it there. |
 | `ronovo_portfolio_auth.login_limiter` | Locks a username for a minute after 5 wrong passwords in a row. It counts in memory, so each server process counts on its own. |
 
 Portfolio login is on only when both `PORTFOLIO_SSO_URL` and `PORTFOLIO_SSO_PUBLIC_KEY` are set.
+
+`add_flask_routes(app, app_id, on_login, on_error=None)` calls `on_login(account, next_path)` once a token checks
+out; `account` is `{"sub", "username"}` and `next_path` is the same-site path `/sso/login?next=` asked for, or
+None. A callback the app can't accept, because the state didn't match (back button, double submit, expired
+session) or the token didn't check out, goes to `on_error(reason)` with `LOGIN_EXPIRED` or `LOGIN_INVALID`, and `LOGIN_MESSAGES[reason]` is the
+line to show the player; without `on_error` it answers 400.
 
 ## Using it
 
@@ -26,6 +32,13 @@ To release a change: bump `version` in `pyproject.toml`, push, tag it (for examp
 update the tag in each app's `requirements.txt`.
 
 To work on it next to an app, install it from the folder instead: `pip install -e ../ronovo-portfolio-auth`.
+
+## Tests
+
+```
+pip install -e .[dev]
+pytest
+```
 
 ## License
 

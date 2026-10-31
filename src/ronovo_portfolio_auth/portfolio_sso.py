@@ -11,7 +11,7 @@ import secrets
 import time
 from functools import lru_cache
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 ISSUER = "portfolio"
 TOKEN_SECONDS = 300
@@ -19,6 +19,16 @@ CALLBACK_PATH = "sso/callback"
 APP_PARAM = "app"
 RETURN_PARAM = "return"
 STATE_PARAM = "state"
+NEXT_PARAM = "next"
+
+# Why a callback was refused: the state did not match (back button, double submit, expired session) or the
+# token did not check out.
+LOGIN_EXPIRED = "expired"
+LOGIN_INVALID = "invalid"
+LOGIN_MESSAGES = {
+    LOGIN_EXPIRED: "Your portfolio login expired. Try again.",
+    LOGIN_INVALID: "That portfolio login didn't check out. Try again.",
+}
 
 
 @lru_cache
@@ -39,6 +49,15 @@ def portfolio_url() -> str:
 
 def new_state() -> str:
     return secrets.token_urlsafe(16)
+
+
+def safe_next(target) -> Optional[str]:
+    """target when it is a path on this site, so a link can't bounce a login elsewhere; otherwise None"""
+    target = target or ""
+    parts = urlsplit(target)
+    on_site = (target.startswith("/") and target.isprintable() and "\\" not in target
+               and not parts.scheme and not parts.netloc)
+    return target if on_site else None
 
 
 def authorize_url(app_id: str, callback_url: str, state: str) -> str:
@@ -72,7 +91,8 @@ def issue(key, app_id: str, user_id, username: str, seconds: int = TOKEN_SECONDS
     """A login token for one app, signed by the portfolio."""
     import jwt
     now = int(time.time())
-    claims = {"iss": ISSUER, "aud": app_id, "sub": str(user_id), "name": username, "iat": now, "exp": now + seconds}
+    claims = {"iss": ISSUER, "aud": app_id, "sub": str(user_id), "name": username, "iat": now, "exp": now + seconds,
+              "jti": secrets.token_urlsafe(8)}
     return jwt.encode(claims, key, algorithm="RS256")
 
 
@@ -89,24 +109,35 @@ def verify(token: str, app_id: str) -> Optional[dict]:
     return {"sub": claims["sub"], "username": claims.get("name", "")}
 
 
-def add_flask_routes(app, app_id: str, on_login):
-    """Adds /sso/login and /sso/callback to a Flask app. on_login(account) runs once a token checks out
-    and returns the response."""
+def add_flask_routes(app, app_id: str, on_login, on_error=None):
+    """Adds /sso/login and /sso/callback to a Flask app.
+
+    on_login(account, next_path) runs once a token checks out and returns the response. next_path is the
+    same-site path /sso/login was given as ?next=, or None. on_error(reason) returns the response for a refused
+    callback, with reason LOGIN_EXPIRED or LOGIN_INVALID; without it the callback answers 400."""
     from flask import abort, redirect, request, session, url_for
+
+    def refuse(reason):
+        return on_error(reason) if on_error else abort(400)
 
     @app.get("/sso/login")
     def sso_login():
         if not enabled():
             abort(404)
         session["portfolio_state"] = state = new_state()
+        session.pop("portfolio_next", None)
+        next_path = safe_next(request.args.get(NEXT_PARAM))
+        if next_path:
+            session["portfolio_next"] = next_path
         return redirect(authorize_url(app_id, url_for("sso_callback", _external=True), state))
 
     @app.post("/" + CALLBACK_PATH)
     def sso_callback():
         state = session.pop("portfolio_state", None)
+        next_path = session.pop("portfolio_next", None)
         if state is None or not secrets.compare_digest(state.encode(), request.form.get(STATE_PARAM, "").encode()):
-            abort(400)
+            return refuse(LOGIN_EXPIRED)
         account = verify(request.form.get("token", ""), app_id)
         if account is None:
-            abort(400)
-        return on_login(account)
+            return refuse(LOGIN_INVALID)
+        return on_login(account, next_path)
